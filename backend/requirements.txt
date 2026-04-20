@@ -1,7 +1,0 @@
-# backend/requirements.txt
-fastapi
-uvicorn[standard]
-tensorflow # Ensure this matches your trained model's version
-numpy
-opencv-python # For image processing (cv2)
-python-multipart # Needed for file uploads in FastAPI

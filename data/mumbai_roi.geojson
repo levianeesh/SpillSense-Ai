@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "Mumbai Coast"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [72.50, 18.80],
+            [73.00, 18.80],
+            [73.00, 19.20],
+            [72.50, 19.20],
+            [72.50, 18.80]
+          ]
+        ]
+      }
+    }
+  ]
+}
