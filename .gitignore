@@ -44,10 +44,20 @@ data/*.SAFE/
 *.SAFE/
 *.zip
 
-# Project Data & Secrets
-data/
-.env
+.venv/
 __pycache__/
-*.zip
-*.SAFE/
+*.pyc
+.venv/
+__pycache__/
+data/
 *.tiff
+*.nc
+*.pt
+*.pth
+.venv/
+__pycache__/
+data/
+*.tiff
+*.nc
+*.pt
+*.pth
