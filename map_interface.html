@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpillSense-Ai | Graphical ROI Interface</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background-color: #1a1a1a;
+            padding: 15px 20px;
+            border-bottom: 1px solid #2d2d2d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            letter-spacing: 1px;
+            color: #ffffff;
+        }
+        .status-badge {
+            background-color: #2e7d32;
+            color: #ffffff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        #container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        #map {
+            flex: 2;
+            height: 100%;
+        }
+        #sidebar {
+            flex: 1;
+            background-color: #1a1a1a;
+            border-left: 1px solid #2d2d2d;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+        .panel {
+            background-color: #242424;
+            border: 1px solid #2d2d2d;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+            color: #aaaaaa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            background-color: #121212;
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            color: #00ff66;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 10px;
+            resize: none;
+            box-sizing: border-box;
+            font-size: 0.85rem;
+        }
+        .btn {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+        .btn:hover {
+            background-color: #0052a3;
+        }
+        .info-text {
+            font-size: 0.85rem;
+            color: #888888;
+            line-height: 1.4;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SpillSense-Ai // Backend Control Panel</h1>
+        <span class="status-badge">API DECOUPLED MODE</span>
+    </header>
+
+    <div id="container">
+        <div id="map"></div>
+
+        <div id="sidebar">
+            <div class="panel">
+                <h2>1. Region of Interest (WKT Output)</h2>
+                <p class="info-text" style="margin-bottom: 10px;">Draw a bounding box or polygon on the map to automatically generate the Well-Known Text geometry required by the CDSE OData filter.</p>
+                <textarea id="wkt-output" readonly placeholder="POLYGON((lng lat, ...)) waiting for user selection..."></textarea>
+            </div>
+
+            <div class="panel">
+                <h2>2. Pipeline Execution Strategy</h2>
+                <p class="info-text">
+                    This spatial string acts as the immediate payload for our Python <code>cdse_api.py</code> module. The current script workflow replaces the manual file reading engine with a direct spatial query endpoint.
+                </p>
+                <button class="btn" style="margin-top: 15px;" onclick="simulateBackendTrigger()">Simulate Pipeline Trigger</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    <script>
+        // Initialize the map view, centered near the Mumbai Coast coordinates from mumbai_roi.geojson
+        const map = L.map('map').setView([19.00, 72.75], 9);
+
+        // Add a high-fidelity dark-themed maritime satellite basemap layer
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        }).addTo(map);
+
+        // FeatureGroup to hold the hand-drawn spatial items
+        const drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        // Define specific design options for the drawing toolbar components
+        const drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: drawnItems,
+                remove: true
+            },
+            draw: {
+                polygon: true,
+                rectangle: true,
+                circle: false,      // Disabled: CDSE API filters do not handle radius parameters natively
+                circlemarker: false,// Disabled
+                marker: false,      // Disabled: Point data lacks spatial bounding logic
+                polyline: false     // Disabled
+            }
+        });
+        map.addControl(drawControl);
+
+        // Spatial logic mapping function with Degenerate Geometry Protection
+        function convertToWKT(layer) {
+            let latlngs = layer.getLatLngs()[0];
+            
+            // VALIDATION: Ensure the shape has actual 2D area, not a flat line or single point
+            const uniqueLats = new Set(latlngs.map(p => p.lat.toFixed(4)));
+            const uniqueLngs = new Set(latlngs.map(p => p.lng.toFixed(4)));
+            
+            // If there is only 1 unique latitude or longitude, it's a line/dot, not a polygon
+            if (uniqueLats.size < 2 || uniqueLngs.size < 2) {
+                return null; 
+            }
+
+            // WKT requires closing the loop perfectly
+            let coordinates = [];
+            latlngs.forEach(latlng => {
+                coordinates.push(`${latlng.lng.toFixed(4)} ${latlng.lat.toFixed(4)}`);
+            });
+            coordinates.push(`${latlngs[0].lng.toFixed(4)} ${latlngs[0].lat.toFixed(4)}`);
+            
+            return `POLYGON((${coordinates.join(', ')}))`;
+        }
+
+        // Event listener triggered whenever a user finishes drawing
+        map.on(L.Draw.Event.CREATED, function (e) {
+            drawnItems.clearLayers(); // Flush existing
+            
+            const layer = e.layer;
+            const wktString = convertToWKT(layer);
+            
+            // Reject invalid shapes immediately in the browser
+            if (!wktString) {
+                alert('⚠️ Invalid Geometry: You drew a flat line or a point. Please draw a distinct rectangle with actual length and width.');
+                document.getElementById('wkt-output').value = "";
+                return;
+            }
+            
+            drawnItems.addLayer(layer);
+            document.getElementById('wkt-output').value = wktString;
+        });
+
+        // Verification notification system to demonstrate complete logic separation
+        async function simulateBackendTrigger() {
+            const wkt = document.getElementById('wkt-output').value;
+            if (!wkt) {
+                alert('⚠️ Selection missing. Draw a boundary region first.');
+                return;
+            }
+
+            const button = document.querySelector('.btn');
+            button.disabled = true;
+            button.innerText = '📡 Executing Pipeline... Check Terminal';
+            button.style.backgroundColor = '#d32f2f';
+
+            try {
+                // Send the coordinates to Python FastAPI server
+                const response = await fetch('http://127.0.0.1:8000/api/trigger-pipeline', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ wkt: wkt })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert(`✅ Backend Response:\n\n${result.message}\n\nScene Acquired: ${result.scene_name || 'None'}`);
+                } else {
+                    alert(`❌ API Error: ${result.detail}`);
+                }
+            } catch (error) {
+                alert(`❌ Connection Refused. Is your FastAPI Python server running on port 8000?`);
+            } finally {
+                button.disabled = false;
+                button.innerText = 'Simulate Pipeline Trigger';
+                button.style.backgroundColor = '#0066cc';
+            }
+        }
+    </script>
+</body>
+</html>

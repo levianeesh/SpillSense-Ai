@@ -1,8 +1,6 @@
-# .gitignore (in the root directory: D:\DL_oil_spill)
-
 # Node Modules (Frontend)
 /frontend/node_modules
-/frontend/dist 
+/frontend/dist
 .env
 
 # Python Environment (Backend)
@@ -13,11 +11,43 @@
 /backend/api/__pycache__
 /backend/core/__pycache__
 
+# Python cache files
+**/__pycache__/
+*.py[cod]
+*.pyo
+
 # Deep Learning Files (CRITICAL: Do not upload model weights)
 /backend/saved_models/*.h5
 /backend/saved_models/*.keras
 /backend/saved_models/*.pb
 
+# Sentinel/SAR data
+data/*.zip
+data/*.SAFE/
+*.SAFE/
+*.zip
+
 # Logs and OS files
 *.log
 .DS_Store
+# Python cache files
+**/__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+
+# Sentinel/SAR data
+data/*.zip
+data/*.SAFE/
+*.SAFE/
+*.zip
+
+# Project Data & Secrets
+data/
+.env
+__pycache__/
+*.zip
+*.SAFE/
+*.tiff

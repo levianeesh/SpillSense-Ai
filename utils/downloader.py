@@ -5,9 +5,10 @@ from datetime import datetime
 
 DOWNLOAD_BASE_URL = "https://catalogue.dataspace.copernicus.eu/odata/v1/Products"
 
-def download_image_chunked(product_id, product_name, access_token, output_dir="../data"):
+def download_image_chunked(product_id, product_name, access_token, output_dir="./data"):
     """
     Downloads a 1GB+ Sentinel-1 file in chunks to prevent RAM crashes.
+    Handles CDSE 302 Redirects manually to preserve Auth tokens.
     """
     # Ensure the data directory exists
     os.makedirs(output_dir, exist_ok=True)
@@ -15,7 +16,6 @@ def download_image_chunked(product_id, product_name, access_token, output_dir=".
     # CDSE download endpoint format
     download_url = f"{DOWNLOAD_BASE_URL}({product_id})/$value"
     
-    # We must pass our authentication token to prove we are allowed to download
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
@@ -25,22 +25,32 @@ def download_image_chunked(product_id, product_name, access_token, output_dir=".
     print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] ⬇️ Starting download for: {product_name}")
     print(f"Saving to: {zip_filepath}")
     
-    # stream=True is the most important part. It prevents loading the whole file into RAM.
-    with requests.get(download_url, headers=headers, stream=True) as response:
-        if response.status_code != 200:
-            raise Exception(f"❌ Download failed: {response.status_code} - {response.text}")
+    # THE FIX: Create a session and manually follow redirects to prevent token stripping
+    session = requests.Session()
+    session.headers.update(headers)
+    
+    # Initial request without auto-following
+    response = session.get(download_url, allow_redirects=False, stream=True)
+    
+    # Manually follow redirects until we hit the actual file server
+    while response.status_code in (301, 302, 303, 307):
+        redirect_url = response.headers['Location']
+        response = session.get(redirect_url, allow_redirects=False, stream=True)
         
-        # Open a local file in write-binary ('wb') mode
-        with open(zip_filepath, 'wb') as file:
-            # Download in 8MB chunks (8192 * 1024 bytes)
-            for chunk in response.iter_content(chunk_size=8388608): 
-                if chunk: # Filter out keep-alive new chunks
-                    file.write(chunk)
-                    
+    if response.status_code != 200:
+        raise Exception(f"❌ Download failed: {response.status_code} - {response.text}")
+    
+    # Open a local file in write-binary ('wb') mode
+    with open(zip_filepath, 'wb') as file:
+        # Download in 8MB chunks
+        for chunk in response.iter_content(chunk_size=8388608): 
+            if chunk: 
+                file.write(chunk)
+                
     print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] ✅ Download complete.")
     return zip_filepath
 
-def extract_safe_zip(zip_filepath, extract_to="../data"):
+def extract_safe_zip(zip_filepath, extract_to="./data"):
     """
     Extracts the downloaded .zip file to reveal the .SAFE folder.
     """
@@ -67,12 +77,3 @@ def extract_safe_zip(zip_filepath, extract_to="../data"):
         
     except zipfile.BadZipFile:
         raise Exception("❌ Extraction failed: The downloaded zip file is corrupted.")
-
-# --- TEST EXECUTION ---
-if __name__ == "__main__":
-    # To test this safely without downloading 1GB, we will just print the logic.
-    # In reality, you would pass the ID and token from Stage 7 here.
-    
-    print("--- DOWNLOADER MODULE LOADED ---")
-    print("Functions available: download_image_chunked(), extract_safe_zip()")
-    print("Ready to integrate into main orchestrator.")
